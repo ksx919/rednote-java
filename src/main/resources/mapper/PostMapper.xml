@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.rednote.mapper.PostMapper">
+
+    <resultMap id="PostDetailResultMap" type="com.rednote.entity.vo.PostDetailVO">
+        <id property="id" column="id"/>
+        <result property="title" column="title"/>
+        <result property="content" column="content"/>
+        <result property="images" column="images" typeHandler="com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler"/>
+        <result property="imgWidth" column="img_width"/>
+        <result property="imgHeight" column="img_height"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="likeCount" column="like_count"/>
+        <result property="collectCount" column="collect_count"/>
+        <result property="commentCount" column="comment_count"/>
+        <result property="authorId" column="author_id"/>
+        <result property="authorName" column="author_name"/>
+        <result property="authorAvatar" column="author_avatar"/>
+        <result property="isLiked" column="is_liked"/>
+        <result property="isCollected" column="is_collected"/>
+        <result property="isFollowed" column="is_followed"/>
+    </resultMap>
+
+    <select id="selectPostDetail" resultMap="PostDetailResultMap">
+        SELECT 
+            p.id, 
+            p.title, 
+            p.content, 
+            p.images, 
+            p.img_width, 
+            p.img_height,
+            p.created_at, 
+            p.like_count, 
+            p.collect_count,
+            (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count,
+            u.id AS author_id, 
+            u.nickname AS author_name, 
+            u.avatar_url AS author_avatar,
+            u.avatar_url AS author_avatar,
+            (CASE WHEN pl.id IS NOT NULL THEN 1 ELSE 0 END) AS is_liked,
+            (CASE WHEN pc.id IS NOT NULL THEN 1 ELSE 0 END) AS is_collected,
+            (CASE WHEN ur.id IS NOT NULL THEN 1 ELSE 0 END) AS is_followed
+        FROM posts p
+        LEFT JOIN users u ON p.user_id = u.id
+        LEFT JOIN post_likes pl ON p.id = pl.post_id AND pl.user_id = #{userId}
+        LEFT JOIN post_collects pc ON p.id = pc.post_id AND pc.user_id = #{userId}
+        LEFT JOIN user_relations ur ON ur.following_id = p.user_id AND ur.follower_id = #{userId}
+        WHERE p.id = #{postId}
+    </select>
+
+</mapper>

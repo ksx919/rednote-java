@@ -1,0 +1,83 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /rednote
+spring:
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 200MB
+  application:
+    name: rednote
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST}:${MYSQL_PORT}/rednote?useUnicode=true&characterEncoding=utf-8&useSSL=false&allowPublicKeyRetrieval=true&zeroDateTimeBehavior=convertToNull&transformedBitIsBoolean=true&allowMultiQueries=true&tinyInt1isBit=false
+    username: ${MYSQL_USER}
+    password: ${MYSQL_PASSWORD}
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      # 连接池大小
+      initial-size: 5
+      min-idle: 5
+      max-active: 20
+
+      # !!! 连接获取超时时间应缩短 !!!
+      max-wait: 3000  # 建议改为3秒，避免应用线程长时间阻塞
+
+      # !!! 核心保活配置优化 !!!
+      # 检测间隔改为30秒
+      time-between-eviction-runs-millis: 30000
+
+      # 最小空闲时间保持5分钟
+      min-evictable-idle-time-millis: 300000
+
+      # !!! 新增：最大空闲时间（非常重要）!!!
+      max-evictable-idle-time-millis: 600000  # 10分钟，防止连接无限期空闲
+
+      # 探活SQL
+      validation-query: SELECT 1
+      validation-query-timeout: 1000  # 新增：验证查询超时1秒
+
+      # 空闲检测开关
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+
+      # 开启keepAlive
+      keep-alive: true
+      keep-alive-between-time-millis: 120000  # 每2分钟保活一次（默认值）
+
+      stat-view-servlet:
+        enabled: true
+        url-pattern: /druid/*
+        login-username: admin
+        login-password: admin
+
+jwt:
+  secret: ${JWT_SECRET}
+
+aliyun:
+  oss:
+    endpoint: oss-cn-hangzhou.aliyuncs.com
+    access-key-id: ${ALIOSS_ACCESS_KEY_ID}
+    access-key-secret: ${ALIOSS_ACCESS_KEY_SECRET}
+    bucket-name: red-note
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+websocket:
+  port: 8081
+  path: /ws
+
+# 日志配置
+logging:
+  level:
+    com.rednote.mapper: debug
+    com.rednote.controller: info
+    com.rednote.service: info
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
