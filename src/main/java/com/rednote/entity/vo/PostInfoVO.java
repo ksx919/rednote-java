@@ -25,4 +25,12 @@ public class PostInfoVO {
     private Integer collectCount;
 
     private Boolean isCollected;
+
+    private String recommendRequestId;
+
+    private String recallSource;
+
+    private Double recommendScore;
+
+    private Integer feedPosition;
 }

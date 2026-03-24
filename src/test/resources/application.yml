@@ -20,3 +20,9 @@ aliyun:
     access-key-id: ${ALIOSS_ACCESS_KEY_ID}
     access-key-secret: ${ALIOSS_ACCESS_KEY_SECRET}
     bucket-name: red-note
+
+recommendation:
+  service:
+    base-url: ${RECOMMENDER_SERVICE_URL:http://127.0.0.1:8001}
+    connect-timeout-ms: 1500
+    read-timeout-ms: 3000

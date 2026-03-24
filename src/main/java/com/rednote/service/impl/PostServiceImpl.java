@@ -7,16 +7,19 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.rednote.common.CursorResult;
 import com.rednote.common.UserContext;
 import com.rednote.entity.Post;
-import com.rednote.entity.User;
+import com.rednote.entity.PostCollect;
+import com.rednote.entity.PostLike;
 import com.rednote.entity.dto.PostPublishDTO;
+import com.rednote.entity.User;
 import com.rednote.entity.vo.PostDetailVO;
 import com.rednote.entity.vo.PostInfoVO;
-import com.rednote.entity.PostLike;
+import com.rednote.mapper.PostCollectMapper;
 import com.rednote.mapper.PostLikeMapper;
 import com.rednote.mapper.PostMapper;
-import com.rednote.entity.PostCollect;
-import com.rednote.mapper.PostCollectMapper;
+import com.rednote.mapper.UserMapper;
+import com.rednote.recommend.dto.RecommendationFeedResponse;
 import com.rednote.service.PostService;
+import com.rednote.service.RecommendationService;
 import com.rednote.service.UserService;
 import com.rednote.utils.AliOssUtil;
 import jakarta.annotation.Resource;
@@ -25,6 +28,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -38,7 +42,7 @@ public class PostServiceImpl extends ServiceImpl<PostMapper, Post> implements Po
     private UserService userService;
 
     @Resource
-    private com.rednote.mapper.UserMapper userMapper;
+    private UserMapper userMapper;
 
     @Resource
     private AliOssUtil aliOssUtil;
@@ -48,6 +52,9 @@ public class PostServiceImpl extends ServiceImpl<PostMapper, Post> implements Po
 
     @Resource
     private PostCollectMapper postCollectMapper;
+
+    @Resource
+    private RecommendationService recommendationService;
 
     @Override
     public PostDetailVO publishPost(PostPublishDTO postPublishDTO, MultipartFile[] files) {
@@ -101,6 +108,42 @@ public class PostServiceImpl extends ServiceImpl<PostMapper, Post> implements Po
         List<PostInfoVO> voList = convertToPostInfoVO(posts);
 
         return CursorResult.build(voList, nextCursor != null ? String.valueOf(nextCursor) : null, hasMore);
+    }
+
+    @Override
+    public CursorResult<PostInfoVO> getRecommendedFeed(String pageToken, int size) {
+        Long currentUserId = UserContext.getUserId();
+        if (currentUserId == null) {
+            return getFeedList(parseLegacyCursor(pageToken), size);
+        }
+
+        try {
+            RecommendationFeedResponse response = recommendationService.recommendFeed(currentUserId, pageToken, size, "feed");
+            if (response == null || response.getPostIds() == null || response.getPostIds().isEmpty()) {
+                return CursorResult.build(new ArrayList<>(), null, false);
+            }
+
+            List<Long> postIds = response.getPostIds();
+            List<Post> posts = listByIds(postIds);
+            Map<Long, Post> postMap = posts.stream().collect(Collectors.toMap(Post::getId, post -> post));
+
+            List<Post> sortedPosts = new ArrayList<>();
+            for (Long postId : postIds) {
+                Post post = postMap.get(postId);
+                if (post != null) {
+                    sortedPosts.add(post);
+                }
+            }
+
+            List<PostInfoVO> voList = convertToPostInfoVO(sortedPosts);
+            attachRecommendationMeta(voList, response);
+
+            boolean hasMore = Boolean.TRUE.equals(response.getHasMore())
+                    || (response.getNextToken() != null && !response.getNextToken().isBlank());
+            return CursorResult.build(voList, response.getNextToken(), hasMore);
+        } catch (Exception e) {
+            return getFeedList(parseLegacyCursor(pageToken), size);
+        }
     }
 
     @Override
@@ -429,5 +472,44 @@ public class PostServiceImpl extends ServiceImpl<PostMapper, Post> implements Po
             }
         }
         return voList;
+    }
+
+    private void attachRecommendationMeta(List<PostInfoVO> voList, RecommendationFeedResponse response) {
+        Map<Long, Integer> postIndexMap = new HashMap<>();
+        for (int i = 0; i < response.getPostIds().size(); i++) {
+            postIndexMap.put(response.getPostIds().get(i), i);
+        }
+
+        int offset = response.getOffset() == null ? 0 : response.getOffset();
+        for (PostInfoVO vo : voList) {
+            Integer index = postIndexMap.get(vo.getId());
+            if (index == null) {
+                continue;
+            }
+
+            vo.setRecommendRequestId(response.getRequestId());
+            vo.setRecallSource(getListValue(response.getRecallSources(), index));
+            vo.setRecommendScore(getListValue(response.getScores(), index));
+            vo.setFeedPosition(offset + index);
+        }
+    }
+
+    private Long parseLegacyCursor(String pageToken) {
+        if (pageToken == null || pageToken.isBlank()) {
+            return null;
+        }
+
+        try {
+            return Long.parseLong(pageToken);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private <T> T getListValue(List<T> values, int index) {
+        if (values == null || index < 0 || index >= values.size()) {
+            return null;
+        }
+        return values.get(index);
     }
 }

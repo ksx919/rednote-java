@@ -3,9 +3,11 @@ package com.rednote.controller;
 import com.rednote.common.CursorResult;
 import com.rednote.common.Result;
 import com.rednote.common.UserContext;
+import com.rednote.entity.dto.PostViewEventDTO;
 import com.rednote.entity.dto.PostPublishDTO;
 import com.rednote.entity.vo.PostDetailVO;
 import com.rednote.entity.vo.PostInfoVO;
+import com.rednote.service.FeedEventService;
 import com.rednote.service.PostService;
 import jakarta.annotation.Resource;
 import org.springframework.web.bind.annotation.*;
@@ -17,6 +19,9 @@ public class PostController {
 
     @Resource
     private PostService postService;
+
+    @Resource
+    private FeedEventService feedEventService;
 
     // 发布帖子
     @PostMapping("/publish")
@@ -40,6 +45,13 @@ public class PostController {
         return Result.success(postService.getFeedList(lastId, size));
     }
 
+    @GetMapping("/feed/recommend")
+    public Result<CursorResult<PostInfoVO>> getRecommendFeed(
+            @RequestParam(required = false) String pageToken,
+            @RequestParam(defaultValue = "10") int size) {
+        return Result.success(postService.getRecommendedFeed(pageToken, size));
+    }
+
     // 点赞/取消点赞
     @PostMapping("/like")
     public Result<Boolean> like(@RequestParam Long targetId, @RequestParam boolean isLike) {
@@ -50,6 +62,12 @@ public class PostController {
     @PostMapping("/collect")
     public Result<Boolean> collect(@RequestParam Long targetId, @RequestParam boolean isCollect) {
         return Result.success(postService.collectPost(targetId, isCollect));
+    }
+
+    @PostMapping("/view")
+    public Result<Boolean> recordView(@RequestBody PostViewEventDTO viewEventDTO) {
+        feedEventService.recordPostView(UserContext.getUserId(), viewEventDTO);
+        return Result.success(true);
     }
 
     // 获取“我”发布的帖子

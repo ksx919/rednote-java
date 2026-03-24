@@ -17,6 +17,8 @@ public interface PostService extends IService<Post> {
     // size: 每次加载多少条
     CursorResult<PostInfoVO> getFeedList(Long lastId, int size);
 
+    CursorResult<PostInfoVO> getRecommendedFeed(String pageToken, int size);
+
     PostDetailVO getPostDetailById(Long id);
 
     // 点赞/取消点赞

@@ -74,6 +74,12 @@ websocket:
   path: /ws
 
 # 日志配置
+recommendation:
+  service:
+    base-url: ${RECOMMENDER_SERVICE_URL:http://127.0.0.1:8001}
+    connect-timeout-ms: 1500
+    read-timeout-ms: 3000
+
 logging:
   level:
     com.rednote.mapper: debug
