@@ -2,6 +2,8 @@ package com.rednote.entity.vo;
 
 import lombok.Data;
 
+import java.util.List;
+
 @Data
 public class PostInfoVO {
     private Long id;
@@ -25,6 +27,10 @@ public class PostInfoVO {
     private Integer collectCount;
 
     private Boolean isCollected;
+
+    private Boolean isFollowed;
+
+    private List<String> tags;
 
     private String recommendRequestId;
 

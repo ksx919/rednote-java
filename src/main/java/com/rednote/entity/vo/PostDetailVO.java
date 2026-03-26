@@ -15,6 +15,7 @@ public class PostDetailVO {
     private Integer imgWidth; // 核心：用于前端计算比例
     private Integer imgHeight; // 核心：用于前端计算比例
     private LocalDateTime createdAt;
+    private List<String> tags;
 
     // === 作者信息 (必须包含，否则前端无法展示顶部栏) ===
     private Long authorId;

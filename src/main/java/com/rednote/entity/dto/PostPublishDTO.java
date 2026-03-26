@@ -9,6 +9,8 @@ public class PostPublishDTO {
 
     private String content;
 
+    private String tagsJson;
+
     private Integer imgWidth;
 
     private Integer imgHeight;

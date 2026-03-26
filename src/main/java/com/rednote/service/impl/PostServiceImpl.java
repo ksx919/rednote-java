@@ -4,18 +4,26 @@ import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rednote.common.CursorResult;
 import com.rednote.common.UserContext;
 import com.rednote.entity.Post;
 import com.rednote.entity.PostCollect;
 import com.rednote.entity.PostLike;
+import com.rednote.entity.PostTag;
+import com.rednote.entity.Tag;
 import com.rednote.entity.dto.PostPublishDTO;
+import com.rednote.entity.UserRelation;
 import com.rednote.entity.User;
 import com.rednote.entity.vo.PostDetailVO;
 import com.rednote.entity.vo.PostInfoVO;
 import com.rednote.mapper.PostCollectMapper;
 import com.rednote.mapper.PostLikeMapper;
 import com.rednote.mapper.PostMapper;
+import com.rednote.mapper.PostTagMapper;
+import com.rednote.mapper.TagMapper;
+import com.rednote.mapper.UserRelationMapper;
 import com.rednote.mapper.UserMapper;
 import com.rednote.recommend.dto.RecommendationFeedResponse;
 import com.rednote.service.PostService;
@@ -28,8 +36,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -56,6 +66,18 @@ public class PostServiceImpl extends ServiceImpl<PostMapper, Post> implements Po
     @Resource
     private RecommendationService recommendationService;
 
+    @Resource
+    private PostTagMapper postTagMapper;
+
+    @Resource
+    private TagMapper tagMapper;
+
+    @Resource
+    private UserRelationMapper userRelationMapper;
+
+    @Resource
+    private ObjectMapper objectMapper;
+
     @Override
     public PostDetailVO publishPost(PostPublishDTO postPublishDTO, MultipartFile[] files) {
         Post post = new Post();
@@ -68,7 +90,11 @@ public class PostServiceImpl extends ServiceImpl<PostMapper, Post> implements Po
         if (!save(post)) {
             throw new RuntimeException("发布失败");
         }
-        return BeanUtil.copyProperties(post, PostDetailVO.class);
+
+        List<String> tagNames = savePostTags(post.getId(), postPublishDTO.getTagsJson());
+        PostDetailVO result = BeanUtil.copyProperties(post, PostDetailVO.class);
+        result.setTags(tagNames);
+        return result;
     }
 
     @Override
@@ -149,7 +175,11 @@ public class PostServiceImpl extends ServiceImpl<PostMapper, Post> implements Po
     @Override
     public PostDetailVO getPostDetailById(Long id) {
         Long currentUserId = UserContext.getUserId();
-        return baseMapper.selectPostDetail(id, currentUserId);
+        PostDetailVO detailVO = baseMapper.selectPostDetail(id, currentUserId);
+        if (detailVO != null) {
+            detailVO.setTags(loadPostTagsMap(List.of(id)).getOrDefault(id, Collections.emptyList()));
+        }
+        return detailVO;
     }
 
     @Override
@@ -414,30 +444,40 @@ public class PostServiceImpl extends ServiceImpl<PostMapper, Post> implements Po
         if (!posts.isEmpty()) {
             // 收集所有 userId
             Set<Long> userIds = posts.stream().map(Post::getUserId).collect(Collectors.toSet());
+            List<Long> postIds = posts.stream().map(Post::getId).collect(Collectors.toList());
             // 批量查询用户
             List<User> users = userService.listByIds(userIds);
             // 转为 Map 方便查找
             Map<Long, User> userMap = users.stream().collect(Collectors.toMap(User::getId, u -> u));
+            Map<Long, List<String>> postTagsMap = loadPostTagsMap(postIds);
 
             // 批量查询当前用户是否点赞
             Long currentUserId = UserContext.getUserId();
             Set<Long> likedPostIds = new HashSet<>();
             Set<Long> collectedPostIds = new HashSet<>();
+            Set<Long> followedAuthorIds = new HashSet<>();
             if (currentUserId != null) {
-                List<Long> currentBatchPostIds = posts.stream().map(Post::getId).collect(Collectors.toList());
-                if (!currentBatchPostIds.isEmpty()) {
+                if (!postIds.isEmpty()) {
                     LambdaQueryWrapper<PostLike> likeQuery = new LambdaQueryWrapper<>();
                     likeQuery.eq(PostLike::getUserId, currentUserId)
-                            .in(PostLike::getPostId, currentBatchPostIds);
+                            .in(PostLike::getPostId, postIds);
                     List<PostLike> likes = postLikeMapper.selectList(likeQuery);
                     likedPostIds = likes.stream().map(PostLike::getPostId)
                             .collect(Collectors.toSet());
 
                     LambdaQueryWrapper<PostCollect> collectQuery = new LambdaQueryWrapper<>();
                     collectQuery.eq(PostCollect::getUserId, currentUserId)
-                            .in(PostCollect::getPostId, currentBatchPostIds);
+                            .in(PostCollect::getPostId, postIds);
                     List<PostCollect> collects = postCollectMapper.selectList(collectQuery);
                     collectedPostIds = collects.stream().map(PostCollect::getPostId)
+                            .collect(Collectors.toSet());
+
+                    LambdaQueryWrapper<UserRelation> relationQuery = new LambdaQueryWrapper<>();
+                    relationQuery.eq(UserRelation::getFollowerId, currentUserId)
+                            .in(UserRelation::getFollowingId, userIds);
+                    List<UserRelation> relations = userRelationMapper.selectList(relationQuery);
+                    followedAuthorIds = relations.stream()
+                            .map(UserRelation::getFollowingId)
                             .collect(Collectors.toSet());
                 }
             }
@@ -450,6 +490,7 @@ public class PostServiceImpl extends ServiceImpl<PostMapper, Post> implements Po
                 vo.setIsLiked(likedPostIds.contains(post.getId()));
                 vo.setCollectCount(post.getCollectCount());
                 vo.setIsCollected(collectedPostIds.contains(post.getId()));
+                vo.setTags(postTagsMap.getOrDefault(post.getId(), Collections.emptyList()));
 
                 // 设置第一张图片
                 List<String> images = post.getImages();
@@ -467,11 +508,91 @@ public class PostServiceImpl extends ServiceImpl<PostMapper, Post> implements Po
                     vo.setNickname(user.getNickname());
                     vo.setAvatarUrl(user.getAvatarUrl());
                 }
+                vo.setIsFollowed(followedAuthorIds.contains(post.getUserId()));
 
                 voList.add(vo);
             }
         }
         return voList;
+    }
+
+    private List<String> savePostTags(Long postId, String tagsJson) {
+        List<String> tagNames = parseTagNames(tagsJson);
+        if (tagNames.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        for (int i = 0; i < tagNames.size(); i++) {
+            String tagName = tagNames.get(i);
+            Tag tag = tagMapper.selectOne(new LambdaQueryWrapper<Tag>().eq(Tag::getName, tagName));
+            if (tag == null) {
+                tag = new Tag();
+                tag.setName(tagName);
+                tag.setCategory("topic");
+                tagMapper.insert(tag);
+            }
+
+            PostTag postTag = new PostTag();
+            postTag.setPostId(postId);
+            postTag.setTagId(tag.getId());
+            postTag.setIsPrimary(i == 0);
+            postTagMapper.insert(postTag);
+        }
+        return tagNames;
+    }
+
+    private Map<Long, List<String>> loadPostTagsMap(List<Long> postIds) {
+        if (postIds == null || postIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        LambdaQueryWrapper<PostTag> postTagQuery = new LambdaQueryWrapper<>();
+        postTagQuery.in(PostTag::getPostId, postIds)
+                .orderByDesc(PostTag::getIsPrimary)
+                .orderByAsc(PostTag::getId);
+        List<PostTag> postTags = postTagMapper.selectList(postTagQuery);
+        if (postTags.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        Set<Long> tagIds = postTags.stream().map(PostTag::getTagId).collect(Collectors.toSet());
+        Map<Long, String> tagNameMap = tagMapper.selectBatchIds(tagIds).stream()
+                .collect(Collectors.toMap(Tag::getId, Tag::getName));
+
+        Map<Long, List<String>> result = new HashMap<>();
+        for (PostTag postTag : postTags) {
+            String tagName = tagNameMap.get(postTag.getTagId());
+            if (tagName == null || tagName.isBlank()) {
+                continue;
+            }
+            result.computeIfAbsent(postTag.getPostId(), ignored -> new ArrayList<>()).add(tagName);
+        }
+        return result;
+    }
+
+    private List<String> parseTagNames(String tagsJson) {
+        if (tagsJson == null || tagsJson.isBlank()) {
+            return Collections.emptyList();
+        }
+        try {
+            List<String> rawTags = objectMapper.readValue(tagsJson, new TypeReference<List<String>>() {});
+            LinkedHashSet<String> normalizedTags = new LinkedHashSet<>();
+            for (String rawTag : rawTags) {
+                if (rawTag == null) {
+                    continue;
+                }
+                String tag = rawTag.trim();
+                if (!tag.isEmpty()) {
+                    normalizedTags.add(tag);
+                }
+                if (normalizedTags.size() >= 3) {
+                    break;
+                }
+            }
+            return new ArrayList<>(normalizedTags);
+        } catch (Exception ignored) {
+            return Collections.emptyList();
+        }
     }
 
     private void attachRecommendationMeta(List<PostInfoVO> voList, RecommendationFeedResponse response) {
